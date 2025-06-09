@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kanban Task Tracker with Firebase</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --primary-color: #3B82F6;
+            --secondary-color: #10B981;
+            --inprogress-color: #F59E0B;
+            --danger-color: #EF4444;
+            --bg-color: #f4f7fc;
+            --card-bg: white;
+            --text-color: #1f2937;
+            --border-color: #e5e7eb;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --column-bg: #f9fafb;
+            
+            --quadrant1-color: #EF4444; /* Urgent & Important */
+            --quadrant2-color: #3B82F6; /* Important, Not Urgent */
+            --quadrant3-color: #F59E0B; /* Urgent, Not Important */
+            --quadrant4-color: #6B7280; /* Not Urgent & Not Important */
+
+            --notification-error-bg: #fee2e2;
+            --notification-error-text: #b91c1c;
+            --notification-success-bg: #dcfce7;
+            --notification-success-text: #166534;
+            --notification-info-bg: #e0f2fe;
+            --notification-info-text: #075985;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #111827;
+            --card-bg: #1f2937;
+            --text-color: #f9fafb;
+            --border-color: #374151;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+            --column-bg: #1f2937;
+
+            --notification-error-bg: #581c1c;
+            --notification-error-text: #fca5a5;
+            --notification-success-bg: #14532d;
+            --notification-success-text: #86efac;
+            --notification-info-bg: #0c4a6e;
+            --notification-info-text: #7dd3fc;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+       .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        #auth-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 80vh;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        #auth-container h1 { color: var(--primary-color); }
+        
+        #main-app { display: none; } /* Hidden by default */
+
+       .header {
+            text-align: center;
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+       .header h1 {
+            margin: 0;
+            color: var(--primary-color);
+            font-size: 2.25rem;
+        }
+        
+       .header-controls {
+            position: absolute;
+            top: 0;
+            right: 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+       .theme-toggle, #logout-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            color: var(--text-color);
+        }
+
+       .theme-toggle:hover, #logout-btn:hover {
+            transform: scale(1.1) rotate(15deg);
+        }
+
+       .controls {
+            background: var(--card-bg);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+        }
+
+       .task-form {
+            display: grid;
+            grid-template-columns: 2fr 2fr 1fr 1fr 1fr auto;
+            gap: 12px;
+            align-items: start;
+        }
+        
+       .eisenhower-inputs {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            padding-top: 5px; /* Align with other inputs */
+        }
+        
+       .eisenhower-inputs label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+
+        input, select, textarea, button {
+            padding: 10px 14px;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            transition: border-color 0.3s, box-shadow 0.3s;
+            box-sizing: border-box;
+        }
+        
+        textarea {
+            min-height: 40px;
+            resize: vertical;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+        
+        button {
+            cursor: pointer;
+            font-weight: 500;
+            border: none;
+        }
+        
+       .btn-primary {
+            background: var(--primary-color);
+            color: white;
+            align-self: end;
+        }
+        
+       .kanban-board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+       .kanban-column {
+            background-color: var(--column-bg);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+
+       .kanban-column h2 {
+            margin: 0 0 15px;
+            font-size: 1.1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+       .task-count {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+       .tasks-container {
+            flex-grow: 1;
+            min-height: 300px;
+            padding: 5px;
+            border-radius: 8px;
+            transition: background-color 0.2s ease-in-out;
+        }
+        
+       .kanban-column.drag-over .tasks-container {
+             background-color: rgba(59, 130, 246, 0.2);
+        }
+
+       .task {
+            padding: 12px;
+            margin-bottom: 10px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            cursor: grab;
+            transition: all 0.3s ease;
+            border-left: 5px solid var(--primary-color);
+        }
+        
+       .task:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 12px -2px rgba(0,0,0,0.15);
+        }
+        
+       .task.dragging {
+            opacity: 0.5;
+            transform: rotate(3deg);
+        }
+
+       .task-title {
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            word-break: break-word;
+        }
+
+       .task-description {
+            font-size: 13px;
+            color: #555;
+            margin-bottom: 8px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        [data-theme="dark"] .task-description {
+            color: #bbb;
+        }
+        
+       .task-meta {
+            font-size: 13px;
+            color: #6b7280;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+
+        [data-theme="dark"] .task-meta {
+            color: #9ca3af;
+        }
+        
+       .priority-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+        }
+
+       .task-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+       .task-actions button {
+            background: none;
+            border: 1px solid var(--border-color);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            transition: all 0.2s;
+       }
+
+       .task-actions button:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+       }
+        
+       .task-actions .delete-btn { color: var(--danger-color); }
+       .task-actions .delete-btn:hover { border-color: var(--danger-color); }
+        
+       .task.status-completed { border-left-color: var(--secondary-color); }
+       .task.status-completed .task-title { text-decoration: line-through; opacity: 0.7; }
+        
+       .analytics-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+        
+       .chart-container {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            position: relative;
+            min-height: 300px;
+        }
+
+        #notification-bar {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            z-index: 1000;
+            font-size: 14px;
+            font-weight: 500;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.5s, visibility 0.5s;
+        }
+        #notification-bar.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #notification-bar.error {
+            background-color: var(--notification-error-bg);
+            color: var(--notification-error-text);
+        }
+
+        #loading-indicator {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            font-size: 16px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+           .task-form {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (max-width: 900px) {
+           .kanban-board, .analytics-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="auth-container">
+        <!-- Content set dynamically by JS -->
+    </div>
+
+    <div id="notification-bar"></div>
+    <div id="loading-indicator" style="display:none;">Loading...</div>
+
+    <div class="container" id="main-app">
+        <div class="header">
+            <h1>Kanban Task Tracker ✨</h1>
+            <p>A fresh start to organize your workflow.</p>
+            <div class="header-controls">
+                <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">🌙</button>
+                <button id="logout-btn" title="Logout (clears local data)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z"/>
+                        <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="task-form">
+                <input type="text" id="taskTitle" placeholder="Enter task title..." aria-label="Task title" maxlength="100">
+                <textarea id="taskDescription" placeholder="Description (optional)..." aria-label="Task description" rows="1"></textarea>
+                <input type="number" id="taskDuration" placeholder="Duration (min)" aria-label="Task duration" min="1">
+                <input type="date" id="taskDueDate" aria-label="Due date">
+                <div class="eisenhower-inputs">
+                    <label><input type="checkbox" id="taskUrgent"> Urgent</label>
+                    <label><input type="checkbox" id="taskImportant"> Important</label>
+                </div>
+                 <button type="button" id="add-task-btn" class="btn-primary">Add Task</button>
+            </div>
+        </div>
+        
+         <div class="analytics-section">
+            <div class="chart-container">
+                <canvas id="taskChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="priorityChart"></canvas>
+            </div>
+        </div>
+
+        <div class="kanban-board">
+            <div class="kanban-column" id="column-todo" data-status="todo">
+                <h2>📝 To Do <span class="task-count" id="count-todo">0</span></h2>
+                <div class="tasks-container" id="tasks-todo"></div>
+            </div>
+            <div class="kanban-column" id="column-inprogress" data-status="inprogress">
+                <h2>⏳ In Progress <span class="task-count" id="count-inprogress">0</span></h2>
+                <div class="tasks-container" id="tasks-inprogress"></div>
+            </div>
+            <div class="kanban-column" id="column-completed" data-status="completed">
+                <h2>✅ Completed <span class="task-count" id="count-completed">0</span></h2>
+                <div class="tasks-container" id="tasks-completed"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, signOut as firebaseSignOut } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, serverTimestamp, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+
+        // ===================================================================================
+        // PASTE YOUR FIREBASE CONFIGURATION OBJECT HERE
+        // ===================================================================================
+     const firebaseConfig = {
+  apiKey: "AIzaSyDsccn5skxdMzvOPQL1UCVW9MD3f6vd1pk",
+  authDomain: "oak-tasks.firebaseapp.com",
+  projectId: "oak-tasks",
+  storageBucket: "oak-tasks.firebasestorage.app",
+  messagingSenderId: "102788120586",
+  appId: "1:102788120586:web:af35e045537930d90a9ff3"
+};
+
+        // ===================================================================================
+
+        // --- GLOBAL STATE ---
+        let app;
+        let auth;
+        let db;
+        let tasks = [];
+        let currentUser = null;
+        let firestoreUnsubscribe = null;
+        let appInitialized = false;
+
+        // --- DOM ELEMENTS ---
+        const authContainer = document.getElementById('auth-container');
+        const mainApp = document.getElementById('main-app');
+        const notificationBar = document.getElementById('notification-bar');
+        const loadingIndicator = document.getElementById('loading-indicator');
+
+        // --- UI FUNCTIONS ---
+        function showUINotification(message, type = 'info', duration = 3000) {
+            notificationBar.textContent = message;
+            notificationBar.className = '';
+            notificationBar.classList.add(type, 'show');
+            setTimeout(() => {
+                notificationBar.classList.remove('show');
+            }, duration);
+        }
+        
+        function showLoading(show, message = 'Loading...') {
+            loadingIndicator.textContent = message;
+            loadingIndicator.style.display = show ? 'flex' : 'none';
+        }
+
+        function setAuthScreenContent(title, message) {
+            authContainer.innerHTML = `<h1>${title}</h1><p>${message}</p>`;
+        }
+        
+        // --- FIREBASE INITIALIZATION & AUTH ---
+        async function initializeAndAuth() {
+            setAuthScreenContent('Kanban Task Tracker', 'Connecting to the database...');
+            showLoading(true, 'Initializing...');
+
+            if (!firebaseConfig || !firebaseConfig.apiKey) {
+                const errorMessage = 'Configuration Error: Firebase config object is missing or invalid. Please paste your project\'s config into the `firebaseConfig` object in the script.';
+                setAuthScreenContent('Configuration Error', errorMessage);
+                showUINotification(errorMessage, 'error', 15000);
+                showLoading(false);
+                return;
+            }
+
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                await enableIndexedDbPersistence(db).catch(console.warn);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        // User is signed in.
+                        if (appInitialized) return;
+                        appInitialized = true;
+                        currentUser = user;
+                        authContainer.style.display = 'none';
+                        mainApp.style.display = 'block';
+                        setupAppEventListeners();
+                        loadTasks();
+                    } else {
+                        // User is signed out. Stay on the auth screen.
+                        signInAnonymously(auth).catch(handleAuthError);
+                    }
+                });
+
+            } catch (error) {
+                console.error("Initialization Error:", error);
+                setAuthScreenContent('Application Failed to Start', `Error: ${error.message}`);
+                showLoading(false);
+            }
+        }
+
+        function handleAuthError(error) {
+             console.error("Authentication Error:", error);
+             let userMessage;
+             if (error.code === 'auth/configuration-not-found') {
+                userMessage = 'Firebase Backend Error: Anonymous sign-in is not enabled for this project. Please go to your Firebase Console -> Authentication -> Sign-in method, and enable the "Anonymous" provider.';
+            } else if (error.code === 'auth/network-request-failed') {
+                userMessage = 'Network Error: Could not connect to the authentication server. Please check your internet connection.';
+            } else {
+                userMessage = `An unexpected authentication error occurred: ${error.message}`;
+            }
+            setAuthScreenContent('Authentication Failed', userMessage);
+            showUINotification(userMessage, 'error', 15000);
+            showLoading(false);
+        }
+        
+        // --- EVENT LISTENERS ---
+        function setupAppEventListeners() {
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                if (currentUser) {
+                    firebaseSignOut(auth).then(() => {
+                        window.location.reload(); // Easiest way to reset the state
+                    }).catch(console.error);
+                }
+            });
+
+            document.getElementById('themeToggle').addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+            });
+
+            document.querySelectorAll('.kanban-column').forEach(column => {
+                column.addEventListener('dragover', e => e.preventDefault());
+                column.addEventListener('dragenter', e => e.target.closest('.kanban-column').classList.add('drag-over'));
+                column.addEventListener('dragleave', e => {
+                    if (!e.target.closest('.kanban-column').contains(e.relatedTarget)) {
+                        e.target.closest('.kanban-column').classList.remove('drag-over');
+                    }
+                });
+                column.addEventListener('drop', handleDrop);
+            });
+
+            document.getElementById('add-task-btn').addEventListener('click', addTask);
+        }
+        
+        // --- THEME ---
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.getElementById('themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+            updateAnalytics();
+        }
+        
+        // --- TASK FUNCTIONS ---
+        async function addTask() {
+            const title = document.getElementById('taskTitle').value.trim();
+            if (!title) {
+                showUINotification('Task title cannot be empty.', 'error');
+                return;
+            }
+            const newTask = {
+                title,
+                description: document.getElementById('taskDescription').value.trim(),
+                duration: Number(document.getElementById('taskDuration').value) || null,
+                dueDate: document.getElementById('taskDueDate').value || null,
+                isUrgent: document.getElementById('taskUrgent').checked,
+                isImportant: document.getElementById('taskImportant').checked,
+                status: 'todo',
+                createdAt: serverTimestamp()
+            };
+            newTask.quadrant = getEisenhowerQuadrant(newTask.isUrgent, newTask.isImportant);
+
+            try {
+                await addDoc(collection(db, 'users', currentUser.uid, 'tasks'), newTask);
+                document.getElementById('taskTitle').value = '';
+                document.getElementById('taskDescription').value = '';
+                document.getElementById('taskDuration').value = '';
+                document.getElementById('taskDueDate').value = '';
+                document.getElementById('taskUrgent').checked = false;
+                document.getElementById('taskImportant').checked = false;
+            } catch (error) {
+                console.error("Error adding task: ", error);
+            }
+        };
+        
+        function getEisenhowerQuadrant(isUrgent, isImportant) {
+            if (isUrgent && isImportant) return 'Q1';
+            if (!isUrgent && isImportant) return 'Q2';
+            if (isUrgent && !isImportant) return 'Q3';
+            return 'Q4';
+        }
+
+        function loadTasks() {
+            const taskCollectionPath = collection(db, 'users', currentUser.uid, 'tasks');
+            const q = query(taskCollectionPath);
+
+            firestoreUnsubscribe = onSnapshot(q, (snapshot) => {
+                tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderAllUI();
+                if (loadingIndicator.style.display !== 'none') {
+                    showLoading(false);
+                }
+            }, (error) => {
+                console.error("Error fetching tasks: ", error);
+                showUINotification(`Error fetching tasks: ${error.message}`, 'error');
+                showLoading(false);
+            });
+        }
+        
+        // --- UI RENDERING ---
+        function renderAllUI() {
+            renderTasks();
+            updateAnalytics();
+        }
+
+        function renderTasks() {
+            const containers = {
+                todo: document.getElementById('tasks-todo'),
+                inprogress: document.getElementById('tasks-inprogress'),
+                completed: document.getElementById('tasks-completed')
+            };
+            Object.values(containers).forEach(c => c.innerHTML = '');
+
+            tasks.forEach(task => {
+                if (containers[task.status]) {
+                    containers[task.status].appendChild(createTaskElement(task));
+                }
+            });
+
+            document.getElementById('count-todo').textContent = tasks.filter(t=>t.status==='todo').length;
+            document.getElementById('count-inprogress').textContent = tasks.filter(t=>t.status==='inprogress').length;
+            document.getElementById('count-completed').textContent = tasks.filter(t=>t.status==='completed').length;
+        }
+
+        function createTaskElement(task) {
+            const div = document.createElement('div');
+            div.className = `task status-${task.status}`;
+            div.id = task.id;
+            div.draggable = task.status !== 'completed';
+            if (div.draggable) {
+                 div.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('text/plain', e.target.id);
+                    e.target.classList.add('dragging');
+                });
+                div.addEventListener('dragend', e => e.target.classList.remove('dragging'));
+            }
+
+            const quadrantColors = {
+                Q1: 'var(--quadrant1-color)', Q2: 'var(--quadrant2-color)',
+                Q3: 'var(--quadrant3-color)', Q4: 'var(--quadrant4-color)'
+            };
+            div.style.borderLeftColor = quadrantColors[task.quadrant];
+
+            div.innerHTML = `
+                <h3 class="task-title">${task.title}</h3>
+                ${task.description ? `<p class="task-description">${task.description}</p>` : ''}
+                <div class="task-meta">
+                    <span class="priority-badge" style="background-color: ${quadrantColors[task.quadrant]}">${task.quadrant}</span>
+                    ${task.dueDate ? `<span>Due: ${new Date(task.dueDate).toLocaleDateString()}</span>` : ''}
+                    ${task.duration ? `<span>Est: ${task.duration} min</span>` : ''}
+                </div>
+            `;
+
+            const actions = document.createElement('div');
+            actions.className = 'task-actions';
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.onclick = () => {
+                 if (window.confirm('Are you sure you want to delete this task?')) {
+                    deleteDoc(doc(db, 'users', currentUser.uid, 'tasks', task.id));
+                 }
+            }
+            actions.appendChild(deleteBtn);
+            
+            div.appendChild(actions);
+
+            return div;
+        }
+
+        async function handleDrop(e) {
+            e.preventDefault();
+            const targetColumn = e.target.closest('.kanban-column');
+            targetColumn.classList.remove('drag-over');
+            const taskId = e.dataTransfer.getData('text/plain');
+            const newStatus = targetColumn.dataset.status;
+
+            const taskDocRef = doc(db, 'users', currentUser.uid, 'tasks', taskId);
+            await updateDoc(taskDocRef, { status: newStatus });
+
+            if(newStatus === 'completed') {
+                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+            }
+        }
+        
+        // --- ANALYTICS ---
+        let taskChart, priorityChart;
+        function setupCharts() {
+            const chartOptions = {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'top', labels: { color: getComputedStyle(document.body).getPropertyValue('--text-color') } } }
+            };
+
+            taskChart = new Chart(document.getElementById('taskChart').getContext('2d'), {
+                type: 'doughnut', data: { labels: [], datasets: [{ data: [], borderWidth: 2 }] }, options: chartOptions
+            });
+
+            priorityChart = new Chart(document.getElementById('priorityChart').getContext('2d'), {
+                type: 'pie', data: { labels: [], datasets: [{ data: [], borderWidth: 2 }] }, options: chartOptions
+            });
+            updateAnalytics();
+        }
+
+        function updateAnalytics() {
+            if (!taskChart) setupCharts();
+            
+            const computedStyles = getComputedStyle(document.documentElement);
+            const textColor = computedStyles.getPropertyValue('--text-color').trim();
+            const cardBg = computedStyles.getPropertyValue('--card-bg').trim();
+
+            taskChart.options.plugins.legend.labels.color = textColor;
+            priorityChart.options.plugins.legend.labels.color = textColor;
+
+            // Update Task Status Chart
+            const statusCounts = tasks.reduce((acc, task) => {
+                acc[task.status] = (acc[task.status] || 0) + 1;
+                return acc;
+            }, {});
+            taskChart.data.labels = ['To Do', 'In Progress', 'Completed'];
+            taskChart.data.datasets[0].data = [statusCounts.todo || 0, statusCounts.inprogress || 0, statusCounts.completed || 0];
+            taskChart.data.datasets[0].backgroundColor = [
+                computedStyles.getPropertyValue('--chart-todo').trim(),
+                computedStyles.getPropertyValue('--chart-inprogress').trim(),
+                computedStyles.getPropertyValue('--chart-completed').trim()
+            ];
+            taskChart.data.datasets[0].borderColor = cardBg;
+            
+            // Update Priority Chart
+            const priorityCounts = tasks.reduce((acc, task) => {
+                acc[task.quadrant] = (acc[task.quadrant] || 0) + 1;
+                return acc;
+            }, {});
+            priorityChart.data.labels = ['Q1: Do', 'Q2: Schedule', 'Q3: Delegate', 'Q4: Eliminate'];
+            priorityChart.data.datasets[0].data = [priorityCounts.Q1 || 0, priorityCounts.Q2 || 0, priorityCounts.Q3 || 0, priorityCounts.Q4 || 0];
+            priorityChart.data.datasets[0].backgroundColor = [
+               computedStyles.getPropertyValue('--chart-q1').trim(),
+               computedStyles.getPropertyValue('--chart-q2').trim(),
+               computedStyles.getPropertyValue('--chart-q3').trim(),
+               computedStyles.getPropertyValue('--chart-q4').trim()
+            ];
+             priorityChart.data.datasets[0].borderColor = cardBg;
+
+            taskChart.update();
+            priorityChart.update();
+        }
+        
+        // --- START THE APP ---
+        document.addEventListener('DOMContentLoaded', initializeAndAuth);
+
+    </script>
+</body>
+</html>
